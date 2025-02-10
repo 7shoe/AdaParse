@@ -67,9 +67,9 @@ class LocalSettings(BaseComputeSettings):
             strategy=None,
             executors=[
                 HighThroughputExecutor(
-                    address='localhost',
+                    address='127.0.0.1',
                     label=self.label,
-                    max_workers=self.max_workers,
+                    max_workers_per_node=self.max_workers,
                     cores_per_worker=self.cores_per_worker,
                     worker_port_range=self.worker_port_range,
                     provider=LocalProvider(init_blocks=1, max_blocks=1),
@@ -97,7 +97,7 @@ class WorkstationSettings(BaseComputeSettings):
             retries=self.retries,
             executors=[
                 HighThroughputExecutor(
-                    address='localhost',
+                    address='127.0.0.1',
                     label=self.label,
                     cpu_affinity='block',
                     available_accelerators=self.available_accelerators,
