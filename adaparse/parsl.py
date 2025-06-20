@@ -10,6 +10,7 @@ try:
 except ImportError:
     from typing_extensions import Literal  # type: ignore [assignment]
 
+import os
 from typing import Sequence
 from typing import Union
 
@@ -173,6 +174,116 @@ class LeonardoSettings(BaseComputeSettings):
             ],
         )
 
+class AuroraSettings(BaseComputeSettings):
+    """Aurora@ALCF settings.
+
+    See here for details: https://docs.alcf.anl.gov/aurora/workflows/parsl/
+    """
+
+    name: Literal['aurora'] = 'aurora'  # type: ignore[assignment]
+    label: str = 'htex'
+
+    num_nodes: int = 1
+    """Number of nodes to request"""
+    worker_init: str = ''
+    """How to start a worker. Should load any modules and environments."""
+    scheduler_options: str = '#PBS -l filesystems=home:flare'
+    """PBS directives, pass -J for array jobs."""
+    account: str
+    """The account to charge compute to."""
+    queue: str
+    """Which queue to submit jobs to, will usually be prod."""
+    walltime: str
+    """Maximum job time."""
+    cpus_per_node: int = 208
+    """Up to 64 with multithreading."""
+    cores_per_worker: float = 32
+    """Number of cores per worker. Evenly distributed between GPUs."""
+    available_accelerators: int = 6
+    """Number of GPU to use."""
+    retries: int = 1
+    """Number of retries upon failure."""
+    worker_debug: bool = False
+    """Enable worker debug."""
+    monitoring_settings: MonitoringSettings | None = None
+    """Optional monitoring settings, if not provided, skip monitoring."""
+
+    def get_config(self, run_dir: PathLike) -> Config:
+        """Create a parsl configuration for running on Polaris@ALCF.
+
+        We will launch 4 workers per node, each pinned to a different GPU.
+
+        Parameters
+        ----------
+        run_dir: PathLike
+            Directory in which to store Parsl run files.
+        """
+        run_dir = str(run_dir)
+        checkpoints = get_all_checkpoints(run_dir)
+
+        monitoring = None
+        if self.monitoring_settings:
+            monitoring = MonitoringHub(
+                hub_address=address_by_interface('bond0'),
+                hub_port=self.monitoring_settings.hub_port,
+                monitoring_debug=self.monitoring_settings.monitoring_debug,
+                resource_monitoring_interval=self.monitoring_settings.resource_monitoring_interval,
+                logging_endpoint=self.monitoring_settings.logging_endpoint,
+                workflow_name=self.monitoring_settings.workflow_name,
+            )
+
+        # These options will run work in 1 node batch jobs run one at a time
+        max_num_jobs = 1
+        tile_names = [f'{gid}.{tid}' for gid in range(6) for tid in range(2)]
+
+        # The config will launch workers from this directory
+        execute_dir = os.getcwd()
+
+        config = Config(
+            executors=[
+                HighThroughputExecutor(
+                    # Ensures one worker per GPU tile on each node
+                    available_accelerators=tile_names,
+                    max_workers_per_node=12,
+                    # Distributes threads to workers/tiles in a way optimized for Aurora
+                    cpu_affinity="list:1-8,105-112:9-16,113-120:17-24,121-128:25-32,129-136:33-40,137-144:41-48,145-152:53-60,157-164:61-68,165-172:69-76,173-180:77-84,181-188:85-92,189-196:93-100,197-204",
+                    # Increase if you have many more tasks than workers
+                    prefetch_capacity=0,
+                    # Options that specify properties of PBS Jobs
+                    provider=PBSProProvider(
+                        # Project name
+                        account=self.account,
+                        # Submission queue
+                        queue=self.queue,
+                        # Commands run before workers launched
+                        # Make sure to activate your environment where Parsl is installed
+                        worker_init=self.worker_init,
+                        # Wall time for batch jobs
+                        walltime=self.walltime,
+                        # Change if data/modules located on other filesystem
+                        scheduler_options=self.scheduler_options,
+                        # Ensures 1 manger per node; the manager will distribute work to its 12 workers, one per tile
+                        launcher=MpiExecLauncher(bind_cmd="--cpu-bind", overrides="--ppn 1"),
+                        # options added to #PBS -l select aside from ncpus
+                        select_options="",
+                        # Number of nodes per PBS job
+                        nodes_per_block=self.num_nodes,
+                        # Minimum number of concurrent PBS jobs running workflow
+                        min_blocks=0,
+                        # Maximum number of concurrent PBS jobs running workflow
+                        max_blocks=max_num_jobs,
+                        # Hardware threads per node
+                        cpus_per_node=self.cores_per_worker,
+                    ),
+                ),
+            ],
+            # How many times to retry failed tasks
+            # this is necessary if you have tasks that are interrupted by a PBS job ending
+            # so that they will restart in the next job
+            retries=1,
+        )
+
+        return config
 
 class PolarisSettings(BaseComputeSettings):
     """Polaris@ALCF settings.
@@ -300,4 +411,5 @@ ComputeSettingsTypes = Union[
     WorkstationSettings,
     PolarisSettings,
     LeonardoSettings,
+    AuroraSettings,
 ]

@@ -149,6 +149,14 @@ pip install -e '.[dev,docs]'
 pre-commit install
 ```
 
+### Running on Aurora.
+
+You'll first need to load intel frameworks with `module load frameworks`
+When creating the virtual envionment, you'll want to be sure to prefer the system packages `python -m venv ./venv --system-site-packages`
+Then install the dependencies as before `pip install .`
+You can ignore the errors regarding unresolvable dependencies between the various intel extension packages.
+You'll need to [patch Nougat to support Intel GPUs](https://github.com/facebookresearch/nougat/pull/261)
+
 ## Citation
 ```bibtex
 @inproceedings{siebenschuhadaparse,

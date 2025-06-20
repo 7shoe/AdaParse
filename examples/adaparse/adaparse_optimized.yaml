@@ -1,14 +1,14 @@
 # The directory containing the pdfs to convert
-pdf_dir: /lus/eagle/projects/argonne_tpc/siebenschuh/aurora_gpt/small-pdf-dataset/
+pdf_dir: /lus/flare/projects/AuroraGPT/runderwood/PRO/
 
 # The directory to place the converted pdfs in
-out_dir: /eagle/projects/argonne_tpc/siebenschuh/aurora_gpt/output/adaparse/test
+out_dir: /lus/flare/projects/AuroraGPT/runderwood/PRO_parsed/
 
 # AdaParse *requires* PDFs as zipped input
 iszip: true
 
 # temp. storage to local SSD: throughput-sensitive
-tmp_storage: /local/scratch
+tmp_storage: "${TMPDIR}"
 
 # The settings for the pdf parser
 parser_settings:
@@ -19,9 +19,9 @@ parser_settings:
 
   # The Nougat parser settings
   # Recommended batch size of pages (not pdfs) is 10, maximum that fits into A100 40GB.
-  batchsize: 10
+  batchsize: 30
   # Path to download the checkpoint to. if already exists, will use existing.
-  checkpoint: /eagle/projects/argonne_tpc/siebenschuh/nougat-checkpoint
+  checkpoint: /lus/flare/projects/AuroraGPT/runderwood/adaparse_checkpoint
   # Set mmd_out to null if you don't want to write mmd files as a byproduct.
   mmd_out: null
   # If set to false, a will skip the pdfs that already have a parsed mmd file in mmd_out
@@ -33,7 +33,7 @@ parser_settings:
   # Preempt processing a paper if mode collapse causes repetitions (true is recommended)
   skipping: true
   # Path for the nougat-specific logs for the run.
-  nougat_logs_path: /eagle/projects/argonne_tpc/siebenschuh/aurora_gpt/output/adaparse/nougat_logs
+  nougat_logs_path: /lus/flare/projects/AuroraGPT/runderwood/nougat_logs
 
   # The AdaParse classifier settings
   # The HF identifier or path to the fine-tuned regression model
@@ -50,17 +50,18 @@ parser_settings:
 # The compute settings for the workflow
 compute_settings:
   # The name of the compute platform to use
-  name: polaris
+  name: aurora
   # The number of compute nodes to use
   num_nodes: 1
   # No of cpus for each worker -> total # of workers (impacted by chunksize): throughput-sensitive
   cores_per_worker: 1
   # Make sure to update the path to your conda environment and HF cache
-  worker_init: "module use /soft/modulefiles; module load conda/2024-04-29; conda activate adaparse"
+  worker_init: "module load frameworks; source /lus/flare/projects/AuroraGPT/runderwood/AdaParse/venv"
+
   # The scheduler options to use when submitting jobs
-  scheduler_options: "#PBS -l filesystems=home:eagle"
+  scheduler_options: "#PBS -l filesystems=home:flare"
   # Make sure to change the account to the account you want to charge
-  account: argonne_tpc
+  account: AuroraGPT
   # The HPC queue to submit to
   queue: debug
   # The amount of time to request for your job

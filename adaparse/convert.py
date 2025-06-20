@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import sys
+import os
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import Any
@@ -210,6 +211,17 @@ class WorkflowConfig(BaseModel):
     """Compute settings (HPC platform, number of GPUs, etc)."""
 
 
+def expand_vars(p: Path) -> str:
+    """expand the ${TMP_DIR} and ${HOME} environment variables"""
+    s = str(p)
+    replacements = {
+        "${HOME}": os.path.expanduser("~"),
+        "${TMPDIR}": os.getenv("TMPDIR", "/tmp"),
+    }
+    for var, value in replacements.items():
+        s = s.replace(var, value)
+    return Path(s)
+
 if __name__ == '__main__':
     parser = ArgumentParser(description='PDF conversion workflow')
     parser.add_argument(
@@ -294,7 +306,7 @@ if __name__ == '__main__':
     if config.iszip:
         worker_fn = functools.partial(
             parse_zip,
-            tmp_storage=config.tmp_storage,
+            tmp_storage=expand_vars(config.tmp_storage),
             output_dir=pdf_output_dir,
             parser_kwargs=config.parser_settings.model_dump(),
         )
