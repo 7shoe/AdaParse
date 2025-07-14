@@ -7,9 +7,11 @@ import sys
 import os
 from argparse import ArgumentParser
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from parsl.concurrent import ParslPoolExecutor
+import concurrent.futures
+import contextlib
 
 from adaparse.parsers import ParserConfigTypes
 from adaparse.parsl import ComputeSettingsTypes
@@ -19,7 +21,7 @@ from adaparse.utils import setup_logging
 
 
 def parse_pdfs(
-    pdf_paths: list[str], output_dir: Path, parser_kwargs: dict[str, Any]
+        pdf_paths: list[str], output_dir: Path, parser_kwargs: dict[str, Any], unique_id:Optional[str]=None
 ) -> None:
     """Parse a batch of PDF files and write the output to a JSON lines file.
 
@@ -44,7 +46,7 @@ def parse_pdfs(
     logger = setup_logging('adaparse')
 
     # Unique ID for logging
-    unique_id = str(uuid.uuid4())
+    unique_id = unique_id or str(uuid.uuid4())
 
     # Initialize the parser. This loads the models into memory and registers
     # them in a global registry unique to the current parsl worker process.
@@ -80,6 +82,7 @@ def parse_zip(
     tmp_storage: Path,
     output_dir: Path,
     parser_kwargs: dict[str, Any],
+    unique_id: Optional[str]=None
 ) -> None:
     """Parse the PDF files stored within a zip file.
 
@@ -99,47 +102,55 @@ def parse_zip(
     import subprocess
     import traceback
     import uuid
+    import contextlib
     from pathlib import Path
 
     from adaparse.convert import parse_pdfs
     from adaparse.timer import Timer
 
-    # Time the worker function
-    timer = Timer('finished-parsing', zip_file).start()
+    unique_id = unique_id or str(uuid.uuid4())
 
-    try:
-        # Make a temporary directory to unzip the file (use a UUID
-        # to avoid name collisions)
-        local_dir = tmp_storage / str(uuid.uuid4())
-        temp_dir = local_dir / Path(zip_file).stem
-        temp_dir.mkdir(parents=True)
+    log_dir = Path(output_dir) / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    with open(log_dir/ (unique_id + ".log"), 'w') as logger:
+        with contextlib.redirect_stdout(logger), contextlib.redirect_stderr(logger):
 
-        # Unzip the file (quietly--no verbose output)
-        subprocess.run(['unzip', '-q', zip_file, '-d', temp_dir], check=False)
+            # Time the worker function
+            timer = Timer('finished-parsing', zip_file).start()
 
-        # Glob the PDFs
-        pdf_paths = [str(p) for p in temp_dir.glob('**/*.pdf')]
+            try:
+                # Make a temporary directory to unzip the file (use a UUID
+                # to avoid name collisions)
+                local_dir = tmp_storage / str(uuid.uuid4())
+                temp_dir = local_dir / Path(zip_file).stem
+                temp_dir.mkdir(parents=True)
 
-        # Call the parse_pdfs function
-        with Timer('parse-pdfs', zip_file):
-            parse_pdfs(pdf_paths, output_dir, parser_kwargs)
+                # Unzip the file (quietly--no verbose output)
+                subprocess.run(['unzip', '-q', zip_file, '-d', temp_dir], check=False)
 
-        # Clean up the temporary directory
-        shutil.rmtree(local_dir)
+                # Glob the PDFs
+                pdf_paths = [str(p) for p in temp_dir.glob('**/*.pdf')]
 
-    # Catch any exceptions possible. Note that we need to convert the exception
-    # to a string to avoid issues with pickling the exception object
-    except BaseException as e:
-        if local_dir.exists():
-            shutil.rmtree(local_dir)
+                # Call the parse_pdfs function
+                with Timer('parse-pdfs', zip_file):
+                    parse_pdfs(pdf_paths, output_dir, parser_kwargs, unique_id=unique_id)
 
-        traceback.print_exc()
-        print(f'Failed to process {zip_file}: {e}')
-        return None
+                # Clean up the temporary directory
+                shutil.rmtree(local_dir)
 
-    finally:
-        # Stop the timer to log the worker time and flush the buffer
-        timer.stop(flush=True)
+            # Catch any exceptions possible. Note that we need to convert the exception
+            # to a string to avoid issues with pickling the exception object
+            except BaseException as e:
+                if local_dir.exists():
+                    shutil.rmtree(local_dir)
+
+                traceback.print_exc()
+                print(f'Failed to process {zip_file}: {e}')
+                return None
+
+            finally:
+                # Stop the timer to log the worker time and flush the buffer
+                timer.stop(flush=True)
 
 
 def parse_checkpoint(checkpoint_path: str) -> set[str]:
@@ -327,4 +338,10 @@ if __name__ == '__main__':
 
     # Distribute the input files across processes
     with ParslPoolExecutor(parsl_config) as pool:
-        list(pool.map(worker_fn, batched_files))
+        futs = pool.map(worker_fn, batched_files)
+        for fut in concurrent.futures.as_completed(futs):
+            try:
+                fut.result()
+            except Exception as ex:
+                print(ex)
+                

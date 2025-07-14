@@ -19,7 +19,7 @@ parser_settings:
 
   # The Nougat parser settings
   # Recommended batch size of pages (not pdfs) is 10, maximum that fits into A100 40GB.
-  batchsize: 30
+  batchsize: 10
   # Path to download the checkpoint to. if already exists, will use existing.
   checkpoint: /lus/flare/projects/AuroraGPT/runderwood/adaparse_checkpoint
   # Set mmd_out to null if you don't want to write mmd files as a byproduct.
@@ -56,7 +56,22 @@ compute_settings:
   # No of cpus for each worker -> total # of workers (impacted by chunksize): throughput-sensitive
   cores_per_worker: 1
   # Make sure to update the path to your conda environment and HF cache
-  worker_init: "module load frameworks; source /lus/flare/projects/AuroraGPT/runderwood/AdaParse/venv/bin/activate"
+  worker_init: |+
+    #don't flood the proxy for dumb checks that shouldn't exist
+    export NO_ALBUMENTATIONS_UPDATE=1
+
+    #load dependencies
+    module load frameworks;
+    source /lus/flare/projects/AuroraGPT/runderwood/AdaParse/venv/bin/activate;
+
+    #configure the ALCF PROXY for huggingface and other things that need it
+    export HTTP_PROXY="http://proxy.alcf.anl.gov:3128"
+    export HTTPS_PROXY="http://proxy.alcf.anl.gov:3128"
+    export http_proxy="http://proxy.alcf.anl.gov:3128"
+    export https_proxy="http://proxy.alcf.anl.gov:3128"
+    export ftp_proxy="http://proxy.alcf.anl.gov:3128"
+    export no_proxy="admin,polaris-adminvm-01,localhost,*.cm.polaris.alcf.anl.gov,polaris-*,*.polaris.alcf.anl.gov,*.alcf.anl.gov"
+
 
   # The scheduler options to use when submitting jobs
   scheduler_options: "#PBS -l filesystems=home:flare"

@@ -281,6 +281,7 @@ class AuroraSettings(BaseComputeSettings):
             # so that they will restart in the next job
             retries=1,
         )
+        print("config", config)
 
         return config
 
